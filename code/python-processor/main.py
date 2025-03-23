@@ -3,6 +3,8 @@ from nats.aio.client import Client as NATS
 import os, random
 from scapy.all import Ether
 
+delay_list = []
+
 async def run():
     nc = NATS()
 
@@ -16,9 +18,12 @@ async def run():
         packet = Ether(data)
         print(packet.show())
         # Publish the received message to outpktsec and outpktinsec
-        #delay = random.expovariate(1 / 5e-6)
-        #await asyncio.sleep(delay)
+
+        delay = random.expovariate(1 / 5e-6)
+        await asyncio.sleep(delay)
+
         if subject == "inpktsec":
+            delay_list.append(delay)
             await nc.publish("outpktinsec", msg.data)
         else:
             await nc.publish("outpktsec", msg.data)
@@ -34,6 +39,11 @@ async def run():
             await asyncio.sleep(1)
     except KeyboardInterrupt:
         print("Disconnecting...")
+        #await nc.close()
+    finally:
+        with open("delay.txt", "w") as f:
+            for d in delay_list:
+                f.write(f"{d:.9f}\n")
         await nc.close()
 
 if __name__ == '__main__':
