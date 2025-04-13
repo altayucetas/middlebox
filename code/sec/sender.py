@@ -1,51 +1,64 @@
 import os
-import socket
 import time
+import socket
+from scapy.all import IP, TCP, send
 
-def udp_sender():
-    host = os.getenv('INSECURENET_HOST_IP')
-    port = 8888
-    message = "Hello, InSecureNet!"
+def xor_encrypt(msg, key):
+    out = []
+    for i in range(len(msg)):
+        c = msg[i]
+        k = key[i % len(key)]
+        out.append(chr(ord(c) ^ ord(k)))  # XOR encryption of character with key
+    return out
+
+def tcp_sender(message, key, dst_port=8888, udp_port=9999):
+    host = os.getenv('INSECURENET_HOST_IP')  # Destination IP from environment variable
+    times = []  # List to store round trip times
 
     if not host:
-        print("SECURENET_HOST_IP environment variable is not set.")
+        print("SECURENET_HOST_IP environment variable is not set.")  # Error if IP is missing
         return
-    
-    rtt_list = [] # List to store round trip times
 
     try:
-        # Create a UDP socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Create UDP socket
+        udp.bind(('', udp_port))  # Bind UDP socket to local port
 
         while True:
+            start = time.time()  # Sending time
 
-            sending_time = time.time() # Sending time
+            head = f"LEN:{len(message)}"  # Create header with message length
+            opts = [(76, head.encode())]  # TCP option for header
+            pkt = IP(dst=host)/TCP(dport=dst_port, flags="S", options=opts)  # TCP packet with header
+            send(pkt, verbose=False)
 
-            # Send message to the server
-            sock.sendto(message.encode(), (host, port))
-            print(f"Message sent to {host}:{port}")
+            crypted = xor_encrypt(message, key)  # Encrypt the message
+            for ch in crypted:
+                opts = [(76, ch.encode())]
+                pkt = IP(dst=host)/TCP(dport=dst_port, flags="S", options=opts)
+                send(pkt, verbose=False)
 
-            # Receive response from the server
-            response, server = sock.recvfrom(4096)
+            print(f"Message sent to {host}:{dst_port}")  # Confirm message sent
 
-            receiving_time = time.time()  # Receiving time
-            rtt = (receiving_time - sending_time) * 1000  # Round trip time in milliseconds
+            resp, addr = udp.recvfrom(4096)  # Wait for response from receiver
+            end = time.time()  # Receiving time
+            print(f"Response from server: {resp.decode()}")  # Print response
 
-            print(f"Response from server: {response.decode()}")
+            rtt = (end - start) * 1000  # Round trip time in milliseconds
+            times.append(rtt)
 
-            rtt_list.append(rtt)
-
-            # Sleep for 1 second
             time.sleep(1)
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred: {e}")  # Print error
     finally:
-        sock.close()
-
+        udp.close()
         with open("rtt_results.txt", "w") as f:
-            for rtt in rtt_list:
-                f.write(f"{rtt:.3f}\n")
+            for t in times:
+                f.write(f"{t:.3f}\n")  # Write RTTs to file
 
 if __name__ == "__main__":
-    udp_sender()
+    msg = "Hi, Insec!" # Message to send
+    key = "altay" # XOR key
+    dst_port = 8888 # Target port on receiver
+    udp_port = 9999 # Local UDP port to receive reply
+    tcp_sender(msg, key, dst_port, udp_port)
